@@ -1,9 +1,13 @@
-// ===== 瞬間英作文トレーナー app.js (APIキー不要版) =====
+// ===== 瞬間英作文トレーナー app.js =====
 
 // ---------- 定数 ----------
-const DAILY_COUNT = 10;
+const NEWS_COUNT   = 7;   // NewsAPIから取得する新問題数
+const REVIEW_MAX   = 3;   // 復習問題の最大数
+const DAILY_COUNT  = NEWS_COUNT + REVIEW_MAX; // 最大10問
 const STORAGE_KEYS = {
-  REVIEW:  'iet_review',   // 翌日復習リスト
+  REVIEW:       'iet_review',        // 翌日復習リスト
+  NEWS_KEY:     'iet_news_key',      // NewsAPIキー
+  TODAY_CACHE:  'iet_today_cache',   // 当日問題キャッシュ
 };
 
 // ---------- サンプル文 ----------
@@ -47,12 +51,13 @@ const SAMPLE_SENTENCES = [
 
 // ---------- 状態 ----------
 let state = {
+  newsKey:      '',
   questions:    [],
   currentIndex: 0,
   results:      [],
   recognition:  null,
   isRecording:  false,
-  activeTab:    'mic',   // 'mic' | 'text'
+  activeTab:    'mic',
 };
 
 // ---------- ユーティリティ ----------
@@ -88,26 +93,115 @@ function getReviewList() {
 function saveReviewList(list) {
   localStorage.setItem(STORAGE_KEYS.REVIEW, JSON.stringify(list));
 }
+function getTodayCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(STORAGE_KEYS.TODAY_CACHE));
+    if (c && c.date === todayStr()) return c.questions;
+    return null;
+  } catch { return null; }
+}
+function saveTodayCache(questions) {
+  localStorage.setItem(STORAGE_KEYS.TODAY_CACHE, JSON.stringify({
+    date: todayStr(),
+    questions,
+  }));
+}
 
-// ---------- 問題準備 ----------
-function prepareQuestions() {
+// ---------- Google翻訳（非公式エンドポイント） ----------
+async function translateToJa(text) {
+  // Google翻訳の非公式APIを使用（無料・キーなし）
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ja&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('翻訳失敗');
+  const data = await res.json();
+  // レスポンス形式: [[["翻訳文","原文",...], ...], ...]
+  return data[0].map(seg => seg[0]).join('');
+}
+
+// ---------- NewsAPI取得 ----------
+async function fetchNewsQuestions(newsKey) {
+  // CORSプロキシ経由でNewsAPIを呼ぶ（ブラウザから直接呼ぶとCORSエラーになる場合がある）
+  const url = `https://newsapi.org/v2/top-headlines?language=en&pageSize=20&apiKey=${newsKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `NewsAPI error: ${res.status}`);
+  }
+  const data = await res.json();
+
+  // タイトルが適切な長さの記事を選ぶ
+  const articles = (data.articles || [])
+    .filter(a => a.title && a.title.length >= 20 && a.title.length <= 120
+                 && !a.title.includes('[Removed]'))
+    .slice(0, NEWS_COUNT * 2); // 余裕を持って取得
+
+  if (articles.length === 0) throw new Error('有効な記事が取得できませんでした');
+
+  // 各記事を翻訳（並列処理）
+  const results = await Promise.allSettled(
+    articles.slice(0, NEWS_COUNT).map(async (a) => {
+      const ja = await translateToJa(a.title);
+      return {
+        ja,
+        en:     a.title,
+        source: `📰 ${a.source?.name || 'News'}`,
+        isReview: false,
+      };
+    })
+  );
+
+  // 成功したものだけ返す
+  const questions = results
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value);
+
+  if (questions.length === 0) throw new Error('翻訳に失敗しました');
+  return questions;
+}
+
+// ---------- 問題準備（非同期） ----------
+async function prepareQuestions(newsKey, onProgress) {
   const today = todayStr();
-  const reviewList = getReviewList();
+
+  // 復習問題（最大3問）
+  const reviewList  = getReviewList();
   const reviewToday = reviewList.filter(r => r.reviewDate === today);
-  const reviewCount = Math.min(reviewToday.length, 5);
-  const newCount    = DAILY_COUNT - reviewCount;
-
-  // 日付シードで毎日違う問題
-  const seed   = today.replace(/-/g, '');
-  const offset = parseInt(seed.slice(-4)) % SAMPLE_SENTENCES.length;
-  const pool   = [...SAMPLE_SENTENCES.slice(offset), ...SAMPLE_SENTENCES.slice(0, offset)];
-  const newQs  = pool.slice(0, newCount).map(s => ({ ...s, source: '📚 サンプル', isReview: false }));
-
-  const reviewQs = reviewToday.slice(0, reviewCount).map(r => ({
+  const reviewQs    = reviewToday.slice(0, REVIEW_MAX).map(r => ({
     ja: r.ja, en: r.en, source: '🔁 復習', isReview: true,
   }));
 
-  return shuffle([...reviewQs, ...newQs]);
+  // 当日キャッシュがあれば再利用（APIを無駄に叩かない）
+  const cached = getTodayCache();
+  if (cached) {
+    onProgress('キャッシュから問題を読み込み中...');
+    // 復習問題を先頭に追加して返す
+    return [...reviewQs, ...cached.filter(q => !q.isReview)];
+  }
+
+  // NewsAPIから新問題を取得
+  onProgress('今日のニュースを取得中...');
+  let newsQs;
+  try {
+    newsQs = await fetchNewsQuestions(newsKey);
+    onProgress('日本語に翻訳中...');
+  } catch (e) {
+    console.warn('NewsAPI失敗、サンプルにフォールバック:', e.message);
+    onProgress('サンプル問題を準備中...');
+    newsQs = getFallbackQuestions(NEWS_COUNT, today);
+  }
+
+  // 当日分をキャッシュ保存
+  saveTodayCache(newsQs);
+
+  return [...reviewQs, ...newsQs];
+}
+
+// ---------- フォールバック（NewsAPI失敗時） ----------
+function getFallbackQuestions(count, dateStr) {
+  const seed   = dateStr.replace(/-/g, '');
+  const offset = parseInt(seed.slice(-4)) % SAMPLE_SENTENCES.length;
+  const pool   = [...SAMPLE_SENTENCES.slice(offset), ...SAMPLE_SENTENCES.slice(0, offset)];
+  return pool.slice(0, count).map(s => ({ ...s, source: '📚 サンプル', isReview: false }));
 }
 
 // ---------- 単語辞書（サンプル文の重要単語 + 語幹形も収録） ----------
@@ -621,6 +715,10 @@ function showComplete() {
 
 // ---------- 初期化 ----------
 function init() {
+  // 保存済みNewsAPIキーを読み込む
+  const savedKey = localStorage.getItem(STORAGE_KEYS.NEWS_KEY) || '';
+  document.getElementById('news-key').value = savedKey;
+
   // 音声認識セットアップ
   state.recognition = initSpeechRecognition();
   checkMicSupport();
@@ -628,12 +726,31 @@ function init() {
   // ===== イベントリスナー =====
 
   // 学習開始
-  document.getElementById('start-btn').addEventListener('click', () => {
-    state.questions    = prepareQuestions();
-    state.currentIndex = 0;
-    state.results      = [];
-    showScreen('practice-screen');
-    renderQuestion();
+  document.getElementById('start-btn').addEventListener('click', async () => {
+    const newsKey = document.getElementById('news-key').value.trim();
+    if (!newsKey) {
+      alert('NewsAPI キーを入力してください。\nhttps://newsapi.org で無料取得できます。');
+      return;
+    }
+
+    state.newsKey = newsKey;
+    localStorage.setItem(STORAGE_KEYS.NEWS_KEY, newsKey);
+
+    // ローディング画面へ
+    showScreen('loading-screen');
+
+    try {
+      state.questions = await prepareQuestions(newsKey, (msg) => {
+        document.getElementById('loading-msg').textContent = msg;
+      });
+      state.currentIndex = 0;
+      state.results      = [];
+      showScreen('practice-screen');
+      renderQuestion();
+    } catch (e) {
+      alert('問題の準備に失敗しました: ' + e.message);
+      showScreen('setup-screen');
+    }
   });
 
   // タブ切り替え

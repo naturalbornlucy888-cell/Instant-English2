@@ -29,12 +29,17 @@
     <div id="setup-screen" class="screen active">
       <div class="card setup-card">
         <h1>🇬🇧 瞬間英作文トレーナー</h1>
-        <p class="subtitle">毎日20文の英作文練習 — APIキー不要</p>
+        <p class="subtitle">毎日10文の英作文練習</p>
+        <div class="form-group">
+          <label for="news-key">NewsAPI キー <span class="required">*必須</span></label>
+          <input type="text" id="news-key" placeholder="NewsAPI key を入力" />
+          <a href="https://newsapi.org" target="_blank" class="link-hint">NewsAPIを取得する（無料）</a>
+        </div>
         <div class="feature-list">
+          <div class="feature-item">📰 毎日新しいニュース7問</div>
+          <div class="feature-item">🔁 誤答は翌日復習3問</div>
           <div class="feature-item">🎤 音声 or テキストで回答</div>
-          <div class="feature-item">✏️ ルールベース自動添削</div>
-          <div class="feature-item">🔁 誤答は翌日復習</div>
-          <div class="feature-item">📚 30種以上のサンプル文</div>
+          <div class="feature-item">✏️ 自動添削・単語解説</div>
         </div>
         <button id="start-btn" class="btn btn-primary">学習を始める</button>
         <div class="mic-notice" id="mic-notice"></div>
