@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Icon Generator</title></head>
+<body>
+<p>下のボタンを押してアイコンをダウンロードしてください。</p>
+<button onclick="generate(192)">icon-192.png をダウンロード</button>
+<button onclick="generate(512)">icon-512.png をダウンロード</button>
+<canvas id="c" style="display:none"></canvas>
+<script>
+function generate(size) {
+  const canvas = document.getElementById('c');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // 背景グラデーション
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, '#6366f1');
+  grad.addColorStop(1, '#8b5cf6');
+  ctx.fillStyle = grad;
+  // 角丸四角形
+  const r = size * 0.2;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(size - r, 0);
+  ctx.quadraticCurveTo(size, 0, size, r);
+  ctx.lineTo(size, size - r);
+  ctx.quadraticCurveTo(size, size, size - r, size);
+  ctx.lineTo(r, size);
+  ctx.quadraticCurveTo(0, size, 0, size - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // 🇬🇧 絵文字テキスト
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${size * 0.45}px serif`;
+  ctx.fillText('🇬🇧', size / 2, size * 0.42);
+
+  // "英" テキスト
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = `bold ${size * 0.18}px sans-serif`;
+  ctx.fillText('英作文', size / 2, size * 0.78);
+
+  // ダウンロード
+  const a = document.createElement('a');
+  a.download = `icon-${size}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+</script>
+</body>
+</html>

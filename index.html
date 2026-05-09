@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>瞬間英作文トレーナー</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="英作文" />
+
+  <!-- OGP / 共有時の表示 -->
+  <meta name="description" content="毎日10文の英作文練習アプリ。音声入力・自動添削対応。" />
+
+  <!-- アイコン -->
+  <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Setup Screen -->
+    <div id="setup-screen" class="screen active">
+      <div class="card setup-card">
+        <h1>🇬🇧 瞬間英作文トレーナー</h1>
+        <p class="subtitle">毎日20文の英作文練習 — APIキー不要</p>
+        <div class="feature-list">
+          <div class="feature-item">🎤 音声 or テキストで回答</div>
+          <div class="feature-item">✏️ ルールベース自動添削</div>
+          <div class="feature-item">🔁 誤答は翌日復習</div>
+          <div class="feature-item">📚 30種以上のサンプル文</div>
+        </div>
+        <button id="start-btn" class="btn btn-primary">学習を始める</button>
+        <div class="mic-notice" id="mic-notice"></div>
+      </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="screen">
+      <div class="card center-card">
+        <div class="spinner"></div>
+        <p id="loading-msg">今日の問題を準備中...</p>
+      </div>
+    </div>
+
+    <!-- Practice Screen -->
+    <div id="practice-screen" class="screen">
+      <header class="practice-header">
+        <div class="progress-info">
+          <span id="progress-text">1 / 20</span>
+          <div class="progress-bar"><div id="progress-fill"></div></div>
+        </div>
+        <button id="settings-btn" class="btn btn-icon" title="設定">⚙️</button>
+      </header>
+
+      <div class="card practice-card">
+        <div class="source-badge" id="source-badge">📰 ニュース</div>
+        <h2 id="japanese-text" class="japanese-text">日本語の文章がここに表示されます</h2>
+
+        <div id="answer-area" class="answer-area">
+          <div id="mic-section">
+            <div class="input-tabs">
+              <button class="tab-btn active" id="tab-mic">🎤 音声入力</button>
+              <button class="tab-btn" id="tab-text">⌨️ テキスト入力</button>
+            </div>
+
+            <div id="mic-panel">
+              <button id="mic-btn" class="btn btn-mic">
+                <span class="mic-icon">🎤</span>
+                <span id="mic-label">タップして音声入力</span>
+              </button>
+              <div id="interim-text" class="interim-text"></div>
+              <p id="mic-status-msg" class="mic-status-msg"></p>
+            </div>
+
+            <div id="text-panel" class="hidden">
+              <textarea id="text-input" placeholder="英文をここに入力してください..." rows="3"></textarea>
+              <button id="text-submit-btn" class="btn btn-secondary">この回答で添削する</button>
+            </div>
+          </div>
+
+          <div id="transcript-section" class="hidden">
+            <label class="field-label">あなたの回答（編集可）</label>
+            <div id="transcript-display" class="transcript-display" contenteditable="true"></div>
+            <div class="answer-actions">
+              <button id="retry-btn" class="btn btn-secondary">🔄 やり直す</button>
+              <button id="submit-btn" class="btn btn-primary">✅ 添削する</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="result-area" class="result-area hidden">
+          <div id="score-badge" class="score-badge"></div>
+          <div class="result-section">
+            <label class="field-label">あなたの回答</label>
+            <p id="user-answer" class="user-answer"></p>
+          </div>
+          <div class="result-section">
+            <label class="field-label">✏️ 添削・解説</label>
+            <div id="correction-text" class="correction-text"></div>
+          </div>
+          <div class="result-section">
+            <label class="field-label">💡 模範解答</label>
+            <p id="model-answer" class="model-answer"></p>
+          </div>
+          <button id="next-btn" class="btn btn-primary btn-full">次の問題へ →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Complete Screen -->
+    <div id="complete-screen" class="screen">
+      <div class="card center-card">
+        <div class="complete-emoji">🎉</div>
+        <h2>今日の学習完了！</h2>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-num" id="stat-correct">0</span>
+            <span class="stat-label">正解</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-wrong">0</span>
+            <span class="stat-label">要復習</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="stat-score">0%</span>
+            <span class="stat-label">正答率</span>
+          </div>
+        </div>
+        <p class="review-note" id="review-note"></p>
+        <button id="restart-btn" class="btn btn-primary">明日また学習する</button>
+      </div>
+    </div>
+
+  </div>
+  <script src="app.js"></script>
+  <script>
+    // Service Worker 登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch(err => console.warn('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
